@@ -3,27 +3,26 @@ package it.unipi.di.acube.finagle.servlet;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.lang.invoke.MethodHandles;
-import java.nio.ByteBuffer;
+import java.util.Collection;
 import java.util.Collections;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.apache.commons.io.IOUtils;
-import org.jboss.netty.buffer.ChannelBuffer;
-import org.jboss.netty.buffer.ChannelBuffers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.twitter.finagle.Service;
 import com.twitter.finagle.http.Method;
-import com.twitter.finagle.http.Methods;
 import com.twitter.finagle.http.Request;
 import com.twitter.finagle.http.Response;
 import com.twitter.finagle.http.Version;
-import com.twitter.finagle.http.Versions;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
+
+import scala.Tuple2;
+import scala.collection.JavaConverters;
 
 public abstract class FinagleServletAdapter {
 	private final static Logger LOG = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
@@ -32,8 +31,8 @@ public abstract class FinagleServletAdapter {
 	        HttpServletResponse servletResponse) {
 		try {
 			Request request = toFinagleRequest(servletRequest);
-			LOG.debug("Forwarding request to Finagle Service. method=%s uri=%s content_length=%d content=%s", request.getMethod(),
-			        request.getUri(), request.getLength(), request.getContentString());
+			LOG.debug("Forwarding request to Finagle Service. method=%s uri=%s content_length=%d content=%s", request.method(),
+			        request.uri(), request.getLength(), request.getContentString());
 			Future<Response> resp = finagleService.apply(request);
 			Response c = Await.result(resp);
 			toServletResponse(c, servletResponse);
@@ -44,13 +43,13 @@ public abstract class FinagleServletAdapter {
 	}
 
 	public static void toServletResponse(Response finagleResponse, HttpServletResponse servletResponse) throws IOException {
-		servletResponse.setStatus(finagleResponse.getStatus().getCode());
+		servletResponse.setStatus(finagleResponse.statusCode());
 
-		finagleResponse.headers().forEach(entry -> servletResponse.setHeader(entry.getKey(), entry.getValue()));
+		Collection<Tuple2<String, String>> finagleHeaders = JavaConverters.asJavaCollectionConverter(finagleResponse.headerMap().toList()).asJavaCollection();
+		for (Tuple2<String, String> headerKV : finagleHeaders)
+			servletResponse.setHeader(headerKV._1, headerKV._2);
 
-		ByteBuffer bb = finagleResponse.getContent().toByteBuffer();
-		byte[] arr = new byte[bb.remaining()];
-		bb.get(arr);
+		byte[] arr = finagleResponse.content().copiedByteArray();
 
 		servletResponse.getOutputStream().write(arr);
 		servletResponse.setContentLength(arr.length);
@@ -65,22 +64,19 @@ public abstract class FinagleServletAdapter {
 		if (httpServletRequest.getQueryString() != null)
 			watUri += "?" + httpServletRequest.getQueryString();
 
-		Version version = httpServletRequest.getProtocol().equals("HTTP/1.0") ? Versions.HTTP_1_0 : Versions.HTTP_1_1;
-		Method method = Methods.newMethod(httpServletRequest.getMethod());
+		Version version = httpServletRequest.getProtocol().equals("HTTP/1.0") ? Version.Http10() : Version.Http11();
+		Method method = Method.apply(httpServletRequest.getMethod());
 
 		Request r = Request.apply(version, method, watUri);
 
 		// Copy headers
 		for (String headerName : Collections.list(httpServletRequest.getHeaderNames())) {
 			String headerValue = httpServletRequest.getHeader(headerName);
-			r.headers().set(headerName, headerValue);
+			r.headerMap().set(headerName, headerValue);
 		}
 
 		// Copy response content
-		ChannelBuffer cb = null;
-		byte[] ba = IOUtils.toByteArray(httpServletRequest.getInputStream());
-		cb = ChannelBuffers.wrappedBuffer(ba);
-		r.setContent(cb);
+		r.setContentString(IOUtils.toString(httpServletRequest.getInputStream(), ("UTF-8")));
 
 		return r;
 	}

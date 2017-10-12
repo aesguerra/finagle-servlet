@@ -34,12 +34,12 @@
 		<dependency>
 			<groupId>com.twitter</groupId>
 			<artifactId>finagle-http_2.11</artifactId>
-			<version>6.34.0</version>
+			<version>6.45.0</version>
 		</dependency>
 		<dependency>
 			<groupId>com.twitter</groupId>
 			<artifactId>finagle-core_2.11</artifactId>
-			<version>6.34.0</version>
+			<version>6.45.0</version>
 		</dependency>
 		<dependency>
 			<groupId>commons-io</groupId>
